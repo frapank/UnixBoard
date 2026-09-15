@@ -192,6 +192,9 @@ namespace {
                            text("  mic: ") | color(kMuted),
                            text(mic_label) | color(Color::White),
                            filler(),
+                           text(live > 0 ? "● live" : "○ standby") |
+                               color(live > 0 ? kOk : kMuted),
+                           text(" "),
                        }),
                        separator() | color(kMuted),
                        hbox({
