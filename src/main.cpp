@@ -6,6 +6,7 @@
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -62,22 +63,38 @@ namespace {
         return hbox(std::move(chips));
     }
 
-    MenuOption pretty_menu(const char* icon)
+    ButtonOption row_button(const char* icon, int number)
     {
-        MenuOption option = MenuOption::Vertical();
-        option.entries_option.transform = [icon](const EntryState& state) {
-            Element label = hbox({
+        ButtonOption option;
+        option.transform = [icon, number](const EntryState& state) {
+            Element row = hbox({
                 text(state.active ? " ▶ " : "   ") | color(kOk),
+                text(number > 0 && number <= 9 ? std::to_string(number) + " "
+                                               : "") |
+                    color(kMuted),
                 text(icon + std::string(" ")) | color(kAccent2),
                 text(state.label),
+                filler(),
             });
             if (state.active)
-                label = label | bold | bgcolor(Color::RGB(49, 50, 68));
+                row = row | bold | bgcolor(Color::RGB(49, 50, 68));
             else
-                label = label | color(Color::RGB(186, 194, 222));
+                row = row | color(Color::RGB(186, 194, 222));
             if (state.focused)
-                label = label | color(kAccent);
-            return label;
+                row = row | color(kAccent) | bgcolor(Color::RGB(49, 50, 68));
+            return row;
+        };
+        return option;
+    }
+
+    ButtonOption action_button(const Color& tint)
+    {
+        ButtonOption option;
+        option.transform = [tint](const EntryState& state) {
+            Element label = text(" " + state.label + " ");
+            if (state.focused)
+                return label | bold | color(Color::Black) | bgcolor(tint);
+            return label | color(tint);
         };
         return option;
     }
@@ -91,10 +108,21 @@ namespace {
 
         int selected = 0;
         bool quit = false;
-        auto screen = ScreenInteractive::TerminalOutput();
-        auto menu = Menu(&labels, &selected, pretty_menu("🎙"));
+        auto screen = ScreenInteractive::Fullscreen();
+        auto menu = Container::Vertical({}, &selected);
+        for (int i = 0; i < static_cast<int>(labels.size()); ++i)
+            menu->Add(Button(
+                labels[i],
+                [&, i] {
+                    selected = i;
+                    screen.Exit();
+                },
+                row_button("🎙", 0)));
+        auto confirm = Button(
+            "▶ use this mic", [&] { screen.Exit(); }, action_button(kOk));
+        auto layout = Container::Vertical({menu, confirm});
 
-        auto root = Renderer(menu, [&] {
+        auto root = Renderer(layout, [&] {
             return vbox({
                        hbox({logo(), filler(), text("setup ") | color(kMuted)}),
                        separator() | color(kMuted),
@@ -104,10 +132,13 @@ namespace {
                        menu->Render() | vscroll_indicator | frame |
                            size(HEIGHT, LESS_THAN, 12),
                        separator() | color(kMuted),
-                       hints({{"↵", "select"}, {"↑↓", "move"}, {"q", "quit"}}),
+                       hbox({confirm->Render(), filler(),
+                             hints({{"↵", "select"},
+                                    {"↑↓", "move"},
+                                    {"q", "quit"}})}),
                    }) |
                    borderRounded | color(Color::White) |
-                   size(WIDTH, GREATER_THAN, 52);
+                   size(WIDTH, GREATER_THAN, 52) | center;
         });
 
         root |= CatchEvent([&](Event event) {
@@ -151,21 +182,48 @@ namespace {
                 names.push_back(clip.name);
             status = "scanned " + std::to_string(clips.size()) + " clip(s)";
         };
-        rescan();
 
         int selected = 0;
         auto screen = ScreenInteractive::Fullscreen();
-        auto menu = Menu(&names, &selected, pretty_menu("♪"));
 
-        auto play_selected = [&] {
-            if (selected < 0 || static_cast<size_t>(selected) >= clips.size())
+        auto play = [&](int index) {
+            if (index < 0 || static_cast<size_t>(index) >= clips.size())
                 return;
-            board.play(clips[selected]);
-            last_played = clips[selected].name;
+            selected = index;
+            board.play(clips[index]);
+            last_played = clips[index].name;
             status = "playing " + last_played;
         };
 
-        auto root = Renderer(menu, [&] {
+        auto clip_list = Container::Vertical({}, &selected);
+        auto rebuild = [&] {
+            rescan();
+            clip_list->DetachAllChildren();
+            for (int i = 0; i < static_cast<int>(clips.size()); ++i)
+                clip_list->Add(Button(
+                    &names[i], [&, i] { play(i); }, row_button("♪", i + 1)));
+        };
+        rebuild();
+
+        auto actions = Container::Horizontal({
+            Button(
+                "▶ play", [&] { play(selected); }, action_button(kOk)),
+            Button(
+                "■ stop",
+                [&] {
+                    board.stop_all();
+                    status = "stopped";
+                },
+                action_button(Color::RGB(243, 139, 168))),
+            Button(
+                "⟳ rescan", [&] { rebuild(); }, action_button(kAccent2)),
+            Button(
+                "✕ quit", [&] { screen.Exit(); }, action_button(kMuted)),
+        });
+
+        auto layout = Container::Vertical({clip_list, actions});
+
+        auto root = Renderer(layout, [&] {
             const size_t live = board.active();
             frame_count++;
 
@@ -176,7 +234,7 @@ namespace {
                             text("drop some in, then press r") | color(kMuted) |
                                 center,
                             filler()})
-                    : menu->Render() | vscroll_indicator | frame;
+                    : clip_list->Render() | vscroll_indicator | frame;
 
             Element details =
                 clips.empty()
@@ -232,28 +290,29 @@ namespace {
                                color(live > 0 ? kOk : kMuted),
                        }),
                        separator() | color(kMuted),
-                       hints({{"↵", "play"},
-                              {"1-9", "quick play"},
-                              {"s", "stop"},
-                              {"r", "rescan"},
-                              {"q", "quit"}}),
+                       hbox({
+                           actions->Render(),
+                           filler(),
+                           hints({{"1-9", "quick play"}, {"↑↓", "move"}}),
+                       }),
                    }) |
                    borderRounded;
         });
 
         root |= CatchEvent([&](Event event) {
-            if (event == Event::Return) {
-                play_selected();
+            if (event.is_mouse() && event.mouse().button == Mouse::WheelDown) {
+                selected =
+                    std::min(selected + 1, static_cast<int>(clips.size()) - 1);
+                return true;
+            }
+            if (event.is_mouse() && event.mouse().button == Mouse::WheelUp) {
+                selected = std::max(selected - 1, 0);
                 return true;
             }
             if (event.is_character() && event.character().size() == 1) {
                 const char c = event.character()[0];
                 if (c >= '1' && c <= '9') {
-                    const size_t index = static_cast<size_t>(c - '1');
-                    if (index < clips.size()) {
-                        selected = static_cast<int>(index);
-                        play_selected();
-                    }
+                    play(c - '1');
                     return true;
                 }
                 if (c == 's') {
@@ -262,7 +321,7 @@ namespace {
                     return true;
                 }
                 if (c == 'r') {
-                    rescan();
+                    rebuild();
                     return true;
                 }
                 if (c == 'q') {
