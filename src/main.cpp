@@ -41,6 +41,14 @@ namespace {
         return mic.description.empty() ? mic.name : mic.description;
     }
 
+    Element logo()
+    {
+        return hbox({
+            text("UNIX") | bold | color(kAccent2),
+            text("BOARD") | bold | color(kAccent),
+        });
+    }
+
     Element hints(std::vector<std::pair<std::string, std::string>> pairs)
     {
         Elements chips;
@@ -87,8 +95,7 @@ namespace {
 
         auto root = Renderer(menu, [&] {
             return vbox({
-                       hbox({text("UnixBoard") | bold, filler(),
-                             text("setup ") | color(kMuted)}),
+                       hbox({logo(), filler(), text("setup ") | color(kMuted)}),
                        separator() | color(kMuted),
                        text(" Which microphone should we intercept?") |
                            color(kMuted),
@@ -172,7 +179,7 @@ namespace {
 
             return vbox({
                        hbox({
-                           text(" UnixBoard ") | bold | inverted,
+                           logo(),
                            text("  mic: ") | color(kMuted),
                            text(mic_label) | color(Color::White),
                            filler(),
