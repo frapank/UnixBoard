@@ -120,7 +120,15 @@ namespace {
                 row_button("🎙", 0)));
         auto confirm = Button(
             "▶ use this mic", [&] { screen.Exit(); }, action_button(kOk));
-        auto layout = Container::Vertical({menu, confirm});
+        auto cancel = Button(
+            "✕ quit",
+            [&] {
+                quit = true;
+                screen.Exit();
+            },
+            action_button(kMuted));
+        auto layout = Container::Vertical(
+            {menu, Container::Horizontal({confirm, cancel})});
 
         auto root = Renderer(layout, [&] {
             return vbox({
@@ -132,7 +140,7 @@ namespace {
                        menu->Render() | vscroll_indicator | frame |
                            size(HEIGHT, LESS_THAN, 12),
                        separator() | color(kMuted),
-                       hbox({confirm->Render(), filler(),
+                       hbox({confirm->Render(), cancel->Render(), filler(),
                              hints({{"↵", "select"},
                                     {"↑↓", "move"},
                                     {"q", "quit"}})}),
@@ -167,8 +175,14 @@ namespace {
         return std::to_string(bytes / 1024) + " KB";
     }
 
-    void run_board(Soundboard& board, const std::string& mic_label)
+    void run_board(Soundboard& board, PulseControl& pulse,
+                   const std::vector<AudioSource>& mics, int mic_index)
     {
+        std::vector<std::string> mic_labels;
+        for (const auto& mic : mics)
+            mic_labels.push_back(label_of(mic));
+        std::string mic_label = mic_labels[mic_index];
+
         std::vector<SoundClip> clips;
         std::vector<std::string> names;
         std::string status = "ready";
@@ -221,7 +235,72 @@ namespace {
                 "✕ quit", [&] { screen.Exit(); }, action_button(kMuted)),
         });
 
-        auto layout = Container::Vertical({clip_list, actions});
+        bool picker_open = false;
+        int picker_selected = mic_index;
+
+        auto close_picker = [&] {
+            picker_open = false;
+            clip_list->TakeFocus();
+        };
+
+        auto switch_mic = [&](int index) {
+            close_picker();
+            if (index == mic_index)
+                return;
+            board.stop_all();
+            pulse.teardown();
+            if (!pulse.setup(mics[index])) {
+                status = "failed to switch mic";
+                return;
+            }
+            pulse.redirect_recording_apps();
+            mic_index = index;
+            mic_label = mic_labels[index];
+            status = "mic → " + mic_label;
+        };
+
+        auto mic_button = Button(
+            &mic_label, [&] { picker_open = true; }, action_button(kAccent));
+
+        auto mic_menu = Container::Vertical({}, &picker_selected);
+        for (int i = 0; i < static_cast<int>(mic_labels.size()); ++i)
+            mic_menu->Add(Button(
+                &mic_labels[i], [&, i] { switch_mic(i); }, row_button("🎙", 0)));
+
+        auto mic_close = Button(
+            "✕ close", [&] { close_picker(); },
+            action_button(kMuted));
+        auto mic_picker =
+            Container::Vertical({mic_menu, Container::Horizontal({mic_close})});
+
+        auto mic_dialog = Renderer(mic_picker, [&] {
+            return vbox({
+                       hbox({logo(), filler(),
+                             text("switch mic ") | color(kMuted)}),
+                       separator() | color(kMuted),
+                       text(" Which microphone should we intercept?") |
+                           color(kMuted),
+                       text(""),
+                       mic_menu->Render() | vscroll_indicator | frame |
+                           size(HEIGHT, LESS_THAN, 12),
+                       separator() | color(kMuted),
+                       hbox({mic_close->Render(), filler(),
+                             hints({{"↵", "select"},
+                                    {"↑↓", "move"},
+                                    {"esc", "cancel"}})}),
+                   }) |
+                   borderRounded | color(Color::White) |
+                   size(WIDTH, GREATER_THAN, 52) | clear_under;
+        });
+        mic_dialog |= CatchEvent([&](Event event) {
+            if (event == Event::Escape || event == Event::Character('q')) {
+                close_picker();
+                return true;
+            }
+            return false;
+        });
+
+        auto layout = Container::Vertical({clip_list, actions, mic_button});
 
         auto root = Renderer(layout, [&] {
             const size_t live = board.active();
@@ -261,7 +340,7 @@ namespace {
                        hbox({
                            logo(),
                            text("  mic: ") | color(kMuted),
-                           text(mic_label) | color(Color::White),
+                           mic_button->Render(),
                            filler(),
                            text(live > 0 ? "● live" : "○ standby") |
                                color(live > 0 ? kOk : kMuted),
@@ -336,6 +415,8 @@ namespace {
             return false;
         });
 
+        root |= Modal(mic_dialog, &picker_open);
+
         std::atomic<bool> ticking{true};
         std::thread ticker([&] {
             while (ticking) {
@@ -392,7 +473,7 @@ int main()
 
     Soundboard board(pulse.node_name());
     g_board = &board;
-    run_board(board, label_of(mic));
+    run_board(board, pulse, mics, mic_index);
 
     g_running = false;
     redirector.join();
