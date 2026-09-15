@@ -94,6 +94,12 @@ void Soundboard::link_into_mic(const std::string& clip_node)
     }
 }
 
+size_t Soundboard::active()
+{
+    reap_finished();
+    return players_.size();
+}
+
 void Soundboard::stop_all()
 {
     for (pid_t pid : players_) {

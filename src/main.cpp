@@ -139,14 +139,14 @@ namespace {
     {
         std::vector<SoundClip> clips;
         std::vector<std::string> names;
-        std::string status;
+        std::string status = "ready";
 
         auto rescan = [&] {
             clips = board.scan("sounds");
             names.clear();
             for (const auto& clip : clips)
                 names.push_back(clip.name);
-            status = std::to_string(clips.size()) + " clip(s)";
+            status = "scanned " + std::to_string(clips.size()) + " clip(s)";
         };
         rescan();
 
@@ -154,7 +154,16 @@ namespace {
         auto screen = ScreenInteractive::Fullscreen();
         auto menu = Menu(&names, &selected, pretty_menu("♪"));
 
+        auto play_selected = [&] {
+            if (selected < 0 || static_cast<size_t>(selected) >= clips.size())
+                return;
+            board.play(clips[selected]);
+            status = "playing " + clips[selected].name;
+        };
+
         auto root = Renderer(menu, [&] {
+            const size_t live = board.active();
+
             Element list =
                 names.empty()
                     ? vbox({filler(),
@@ -193,9 +202,16 @@ namespace {
                                   details) |
                                size(WIDTH, GREATER_THAN, 34),
                        }) | flex,
-                       text(" " + status) | color(kOk),
+                       hbox({
+                           text(" " + status) | color(kOk) | flex,
+                           text(std::to_string(clips.size()) + " clips  ") |
+                               color(kMuted),
+                           text(std::to_string(live) + " playing ") |
+                               color(live > 0 ? kOk : kMuted),
+                       }),
                        separator() | color(kMuted),
                        hints({{"↵", "play"},
+                              {"1-9", "quick play"},
                               {"s", "stop"},
                               {"r", "rescan"},
                               {"q", "quit"}}),
@@ -205,23 +221,34 @@ namespace {
 
         root |= CatchEvent([&](Event event) {
             if (event == Event::Return) {
-                if (selected >= 0 &&
-                    static_cast<size_t>(selected) < clips.size()) {
-                    board.play(clips[selected]);
-                    status = "playing " + clips[selected].name;
+                play_selected();
+                return true;
+            }
+            if (event.is_character() && event.character().size() == 1) {
+                const char c = event.character()[0];
+                if (c >= '1' && c <= '9') {
+                    const size_t index = static_cast<size_t>(c - '1');
+                    if (index < clips.size()) {
+                        selected = static_cast<int>(index);
+                        play_selected();
+                    }
+                    return true;
                 }
-                return true;
+                if (c == 's') {
+                    board.stop_all();
+                    status = "stopped";
+                    return true;
+                }
+                if (c == 'r') {
+                    rescan();
+                    return true;
+                }
+                if (c == 'q') {
+                    screen.Exit();
+                    return true;
+                }
             }
-            if (event == Event::Character('s')) {
-                board.stop_all();
-                status = "stopped";
-                return true;
-            }
-            if (event == Event::Character('r')) {
-                rescan();
-                return true;
-            }
-            if (event == Event::Character('q') || event == Event::Escape) {
+            if (event == Event::Escape) {
                 screen.Exit();
                 return true;
             }
