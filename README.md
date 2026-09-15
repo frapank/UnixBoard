@@ -10,3 +10,14 @@
 
 </div>
 
+A lightweight TUI for triggering sound clips straight into your microphone input on Linux. Pick a sound, click or hit a key, and it plays live :D
+
+![screenshot](.github/assets/screenshot.png)
+
+## Build
+
+```sh
+cmake -B build
+cmake --build build -j
+./build/unixboard
+```
