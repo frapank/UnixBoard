@@ -265,11 +265,11 @@ namespace {
         auto mic_menu = Container::Vertical({}, &picker_selected);
         for (int i = 0; i < static_cast<int>(mic_labels.size()); ++i)
             mic_menu->Add(Button(
-                &mic_labels[i], [&, i] { switch_mic(i); }, row_button("🎙", 0)));
+                &mic_labels[i], [&, i] { switch_mic(i); },
+                row_button("🎙", 0)));
 
-        auto mic_close = Button(
-            "✕ close", [&] { close_picker(); },
-            action_button(kMuted));
+        auto mic_close =
+            Button("✕ close", [&] { close_picker(); }, action_button(kMuted));
         auto mic_picker =
             Container::Vertical({mic_menu, Container::Horizontal({mic_close})});
 
