@@ -4,6 +4,13 @@ project(UnixBoard CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+FetchContent_Declare(ftxui
+    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+    GIT_TAG v5.0.0
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(ftxui)
+
 add_executable(unixboard
     src/main.cpp
     src/proc_exec.cpp
@@ -13,7 +20,8 @@ add_executable(unixboard
 target_include_directories(unixboard PRIVATE src)
 
 find_package(Threads REQUIRED)
-target_link_libraries(unixboard PRIVATE Threads::Threads)
+target_link_libraries(unixboard PRIVATE Threads::Threads
+    ftxui::screen ftxui::dom ftxui::component)
 
 file(GLOB UNIXBOARD_SOURCES src/*.cpp src/*.hpp)
 find_program(CLANG_FORMAT clang-format)

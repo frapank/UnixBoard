@@ -21,6 +21,8 @@ public:
 
     void stop_all();
 
+    size_t active();
+
 private:
     void link_into_mic(const std::string& clip_node);
     void reap_finished();
