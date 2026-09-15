@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <filesystem>
 #include <iostream>
@@ -140,6 +141,8 @@ namespace {
         std::vector<SoundClip> clips;
         std::vector<std::string> names;
         std::string status = "ready";
+        std::string last_played;
+        int frame_count = 0;
 
         auto rescan = [&] {
             clips = board.scan("sounds");
@@ -158,11 +161,13 @@ namespace {
             if (selected < 0 || static_cast<size_t>(selected) >= clips.size())
                 return;
             board.play(clips[selected]);
-            status = "playing " + clips[selected].name;
+            last_played = clips[selected].name;
+            status = "playing " + last_played;
         };
 
         auto root = Renderer(menu, [&] {
             const size_t live = board.active();
+            frame_count++;
 
             Element list =
                 names.empty()
@@ -186,6 +191,14 @@ namespace {
                                 text(clips[selected].path) | color(kMuted)}),
                       });
 
+            Element now =
+                live > 0
+                    ? vbox({hbox({spinner(5, frame_count) | color(kOk),
+                                  text(" " + last_played) | bold}),
+                            gauge(0.5F + 0.5F * std::sin(frame_count / 4.0F)) |
+                                color(kOk)})
+                    : vbox({text("idle") | color(kMuted), separatorEmpty()});
+
             return vbox({
                        hbox({
                            logo(),
@@ -201,9 +214,15 @@ namespace {
                            window(text(" clips ") | bold | color(kAccent),
                                   list) |
                                flex,
-                           window(text(" selected ") | bold | color(kAccent),
-                                  details) |
-                               size(WIDTH, GREATER_THAN, 34),
+                           vbox({
+                               window(text(" selected ") | bold |
+                                          color(kAccent),
+                                      details) |
+                                   flex,
+                               window(text(" now playing ") | bold |
+                                          color(kAccent),
+                                      now),
+                           }) | size(WIDTH, GREATER_THAN, 34),
                        }) | flex,
                        hbox({
                            text(" " + status) | color(kOk) | flex,
@@ -258,7 +277,17 @@ namespace {
             return false;
         });
 
+        std::atomic<bool> ticking{true};
+        std::thread ticker([&] {
+            while (ticking) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                screen.PostEvent(Event::Custom);
+            }
+        });
+
         screen.Loop(root);
+        ticking = false;
+        ticker.join();
     }
 
 } // namespace
