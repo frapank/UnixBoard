@@ -1,11 +1,17 @@
 #include "pulse_control.hpp"
 #include "soundboard.hpp"
 
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <iostream>
 #include <thread>
+
+using namespace ftxui;
 
 namespace {
 
@@ -23,43 +29,119 @@ namespace {
         std::_Exit(0);
     }
 
-    int choose_microphone(const std::vector<AudioSource>& mics)
+    std::string label_of(const AudioSource& mic)
     {
-        std::cout << "Microphones:\n";
-        for (size_t i = 0; i < mics.size(); ++i) {
-            const std::string& label = mics[i].description.empty()
-                                           ? mics[i].name
-                                           : mics[i].description;
-            std::cout << "  [" << i << "] " << label << "\n";
-        }
-        std::cout << "\nWhich one to intercept? [0]: ";
-        std::string line;
-        std::getline(std::cin, line);
-        if (line.empty())
-            return 0;
-        try {
-            int idx = std::stoi(line);
-            if (idx >= 0 && static_cast<size_t>(idx) < mics.size())
-                return idx;
-        } catch (...) {
-        }
-        return 0;
+        return mic.description.empty() ? mic.name : mic.description;
     }
 
-    void draw_menu(const std::string& mic_label,
-                   const std::vector<SoundClip>& clips)
+    // Returns the index into `mics`, or -1 if the user quit.
+    int choose_microphone(const std::vector<AudioSource>& mics)
     {
-        std::cout << "\033[2J\033[H";
-        std::cout << "UnixBoard  |  intercepting: " << mic_label << "\n\n";
-        if (clips.empty()) {
-            std::cout
-                << "  No .mp3 in ./sounds -- drop some in, then press r\n";
-        } else {
-            for (size_t i = 0; i < clips.size(); ++i) {
-                std::cout << "  [" << i << "] " << clips[i].name << "\n";
+        std::vector<std::string> labels;
+        for (const auto& mic : mics)
+            labels.push_back(label_of(mic));
+
+        int selected = 0;
+        bool quit = false;
+        auto screen = ScreenInteractive::TerminalOutput();
+        auto menu = Menu(&labels, &selected);
+
+        auto root = Renderer(menu, [&] {
+            return vbox({
+                       text("UnixBoard") | bold,
+                       text("Which microphone should we intercept?") | dim,
+                       separator(),
+                       menu->Render() | vscroll_indicator | frame |
+                           size(HEIGHT, LESS_THAN, 12),
+                       separator(),
+                       text("enter = select   q = quit") | dim,
+                   }) |
+                   border;
+        });
+
+        root |= CatchEvent([&](Event event) {
+            if (event == Event::Return) {
+                screen.Exit();
+                return true;
             }
-        }
-        std::cout << "\n  number = play   r = rescan   q = quit\n> ";
+            if (event == Event::Character('q') || event == Event::Escape) {
+                quit = true;
+                screen.Exit();
+                return true;
+            }
+            return false;
+        });
+
+        screen.Loop(root);
+        return quit ? -1 : selected;
+    }
+
+    void run_board(Soundboard& board, const std::string& mic_label)
+    {
+        std::vector<SoundClip> clips;
+        std::vector<std::string> names;
+        std::string status;
+
+        auto rescan = [&] {
+            clips = board.scan("sounds");
+            names.clear();
+            for (const auto& clip : clips)
+                names.push_back(clip.name);
+            status = std::to_string(clips.size()) + " clip(s)";
+        };
+        rescan();
+
+        int selected = 0;
+        auto screen = ScreenInteractive::Fullscreen();
+        auto menu = Menu(&names, &selected);
+
+        auto root = Renderer(menu, [&] {
+            Element list =
+                names.empty()
+                    ? text(
+                          "no .mp3 in ./sounds -- drop some in, then press r") |
+                          dim | center
+                    : menu->Render() | vscroll_indicator | frame;
+            return vbox({
+                       hbox({text(" UnixBoard ") | bold | inverted,
+                             text("  mic: " + mic_label) | dim}),
+                       separator(),
+                       list | flex,
+                       separator(),
+                       hbox({text(status) | flex,
+                             text("enter = play   s = stop   r = rescan   q = "
+                                  "quit") |
+                                 dim}),
+                   }) |
+                   border;
+        });
+
+        root |= CatchEvent([&](Event event) {
+            if (event == Event::Return) {
+                if (selected >= 0 &&
+                    static_cast<size_t>(selected) < clips.size()) {
+                    board.play(clips[selected]);
+                    status = "playing " + clips[selected].name;
+                }
+                return true;
+            }
+            if (event == Event::Character('s')) {
+                board.stop_all();
+                status = "stopped";
+                return true;
+            }
+            if (event == Event::Character('r')) {
+                rescan();
+                return true;
+            }
+            if (event == Event::Character('q') || event == Event::Escape) {
+                screen.Exit();
+                return true;
+            }
+            return false;
+        });
+
+        screen.Loop(root);
     }
 
 } // namespace
@@ -80,9 +162,11 @@ int main()
         std::cerr << "No microphones found. Is PipeWire/PulseAudio running?\n";
         return 1;
     }
-    const AudioSource& mic = mics[choose_microphone(mics)];
-    const std::string mic_label =
-        mic.description.empty() ? mic.name : mic.description;
+
+    int mic_index = choose_microphone(mics);
+    if (mic_index < 0)
+        return 0;
+    const AudioSource& mic = mics[mic_index];
 
     PulseControl pulse;
     g_pulse = &pulse;
@@ -103,27 +187,7 @@ int main()
 
     Soundboard board(pulse.node_name());
     g_board = &board;
-    auto clips = board.scan("sounds");
-
-    while (true) {
-        draw_menu(mic_label, clips);
-
-        std::string line;
-        if (!std::getline(std::cin, line))
-            break;
-        if (line == "q")
-            break;
-        if (line == "r") {
-            clips = board.scan("sounds");
-            continue;
-        }
-        try {
-            size_t idx = static_cast<size_t>(std::stoul(line));
-            if (idx < clips.size())
-                board.play(clips[idx]);
-        } catch (...) {
-        }
-    }
+    run_board(board, label_of(mic));
 
     g_running = false;
     redirector.join();
