@@ -53,12 +53,13 @@ namespace {
         return hbox(std::move(chips));
     }
 
-    MenuOption pretty_menu()
+    MenuOption pretty_menu(const char* icon)
     {
         MenuOption option = MenuOption::Vertical();
-        option.entries_option.transform = [](const EntryState& state) {
+        option.entries_option.transform = [icon](const EntryState& state) {
             Element label = hbox({
-                text(state.active ? " > " : "   ") | color(kOk),
+                text(state.active ? " ▶ " : "   ") | color(kOk),
+                text(icon + std::string(" ")) | color(kAccent2),
                 text(state.label),
             });
             if (state.active)
@@ -82,7 +83,7 @@ namespace {
         int selected = 0;
         bool quit = false;
         auto screen = ScreenInteractive::TerminalOutput();
-        auto menu = Menu(&labels, &selected, pretty_menu());
+        auto menu = Menu(&labels, &selected, pretty_menu("🎙"));
 
         auto root = Renderer(menu, [&] {
             return vbox({
@@ -95,7 +96,7 @@ namespace {
                        menu->Render() | vscroll_indicator | frame |
                            size(HEIGHT, LESS_THAN, 12),
                        separator() | color(kMuted),
-                       hints({{"enter", "select"}, {"q", "quit"}}),
+                       hints({{"↵", "select"}, {"↑↓", "move"}, {"q", "quit"}}),
                    }) |
                    borderRounded | color(Color::White) |
                    size(WIDTH, GREATER_THAN, 52);
@@ -144,7 +145,7 @@ namespace {
 
         int selected = 0;
         auto screen = ScreenInteractive::Fullscreen();
-        auto menu = Menu(&names, &selected, pretty_menu());
+        auto menu = Menu(&names, &selected, pretty_menu("♪"));
 
         auto root = Renderer(menu, [&] {
             Element list =
@@ -187,7 +188,7 @@ namespace {
                        }) | flex,
                        text(" " + status) | color(kOk),
                        separator() | color(kMuted),
-                       hints({{"enter", "play"},
+                       hints({{"↵", "play"},
                               {"s", "stop"},
                               {"r", "rescan"},
                               {"q", "quit"}}),
