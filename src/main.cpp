@@ -2,12 +2,14 @@
 #include "soundboard.hpp"
 
 #include <ftxui/component/component.hpp>
+#include <ftxui/component/component_options.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <filesystem>
 #include <iostream>
 #include <thread>
 
@@ -18,6 +20,11 @@ namespace {
     PulseControl* g_pulse = nullptr;
     Soundboard* g_board = nullptr;
     std::atomic<bool> g_running{true};
+
+    const Color kAccent = Color::RGB(137, 180, 250);
+    const Color kAccent2 = Color::RGB(203, 166, 247);
+    const Color kOk = Color::RGB(166, 227, 161);
+    const Color kMuted = Color::RGB(108, 112, 134);
 
     void handle_signal(int)
     {
@@ -34,6 +41,37 @@ namespace {
         return mic.description.empty() ? mic.name : mic.description;
     }
 
+    Element hints(std::vector<std::pair<std::string, std::string>> pairs)
+    {
+        Elements chips;
+        for (const auto& [key, what] : pairs) {
+            chips.push_back(hbox({
+                text(" " + key) | bold | color(kAccent),
+                text(" " + what + "  ") | color(kMuted),
+            }));
+        }
+        return hbox(std::move(chips));
+    }
+
+    MenuOption pretty_menu()
+    {
+        MenuOption option = MenuOption::Vertical();
+        option.entries_option.transform = [](const EntryState& state) {
+            Element label = hbox({
+                text(state.active ? " > " : "   ") | color(kOk),
+                text(state.label),
+            });
+            if (state.active)
+                label = label | bold | bgcolor(Color::RGB(49, 50, 68));
+            else
+                label = label | color(Color::RGB(186, 194, 222));
+            if (state.focused)
+                label = label | color(kAccent);
+            return label;
+        };
+        return option;
+    }
+
     // Returns the index into `mics`, or -1 if the user quit.
     int choose_microphone(const std::vector<AudioSource>& mics)
     {
@@ -44,19 +82,23 @@ namespace {
         int selected = 0;
         bool quit = false;
         auto screen = ScreenInteractive::TerminalOutput();
-        auto menu = Menu(&labels, &selected);
+        auto menu = Menu(&labels, &selected, pretty_menu());
 
         auto root = Renderer(menu, [&] {
             return vbox({
-                       text("UnixBoard") | bold,
-                       text("Which microphone should we intercept?") | dim,
-                       separator(),
+                       hbox({text("UnixBoard") | bold, filler(),
+                             text("setup ") | color(kMuted)}),
+                       separator() | color(kMuted),
+                       text(" Which microphone should we intercept?") |
+                           color(kMuted),
+                       text(""),
                        menu->Render() | vscroll_indicator | frame |
                            size(HEIGHT, LESS_THAN, 12),
-                       separator(),
-                       text("enter = select   q = quit") | dim,
+                       separator() | color(kMuted),
+                       hints({{"enter", "select"}, {"q", "quit"}}),
                    }) |
-                   border;
+                   borderRounded | color(Color::White) |
+                   size(WIDTH, GREATER_THAN, 52);
         });
 
         root |= CatchEvent([&](Event event) {
@@ -76,6 +118,15 @@ namespace {
         return quit ? -1 : selected;
     }
 
+    std::string human_size(const std::string& path)
+    {
+        std::error_code ec;
+        auto bytes = std::filesystem::file_size(path, ec);
+        if (ec)
+            return "?";
+        return std::to_string(bytes / 1024) + " KB";
+    }
+
     void run_board(Soundboard& board, const std::string& mic_label)
     {
         std::vector<SoundClip> clips;
@@ -93,27 +144,55 @@ namespace {
 
         int selected = 0;
         auto screen = ScreenInteractive::Fullscreen();
-        auto menu = Menu(&names, &selected);
+        auto menu = Menu(&names, &selected, pretty_menu());
 
         auto root = Renderer(menu, [&] {
             Element list =
                 names.empty()
-                    ? text(
-                          "no .mp3 in ./sounds -- drop some in, then press r") |
-                          dim | center
+                    ? vbox({filler(),
+                            text("no .mp3 in ./sounds") | bold | center,
+                            text("drop some in, then press r") | color(kMuted) |
+                                center,
+                            filler()})
                     : menu->Render() | vscroll_indicator | frame;
+
+            Element details =
+                clips.empty()
+                    ? text("—") | color(kMuted)
+                    : vbox({
+                          hbox({text("clip  ") | color(kMuted),
+                                text(clips[selected].name) | bold |
+                                    color(kAccent)}),
+                          hbox({text("size  ") | color(kMuted),
+                                text(human_size(clips[selected].path))}),
+                          hbox({text("file  ") | color(kMuted),
+                                text(clips[selected].path) | color(kMuted)}),
+                      });
+
             return vbox({
-                       hbox({text(" UnixBoard ") | bold | inverted,
-                             text("  mic: " + mic_label) | dim}),
-                       separator(),
-                       list | flex,
-                       separator(),
-                       hbox({text(status) | flex,
-                             text("enter = play   s = stop   r = rescan   q = "
-                                  "quit") |
-                                 dim}),
+                       hbox({
+                           text(" UnixBoard ") | bold | inverted,
+                           text("  mic: ") | color(kMuted),
+                           text(mic_label) | color(Color::White),
+                           filler(),
+                       }),
+                       separator() | color(kMuted),
+                       hbox({
+                           window(text(" clips ") | bold | color(kAccent),
+                                  list) |
+                               flex,
+                           window(text(" selected ") | bold | color(kAccent),
+                                  details) |
+                               size(WIDTH, GREATER_THAN, 34),
+                       }) | flex,
+                       text(" " + status) | color(kOk),
+                       separator() | color(kMuted),
+                       hints({{"enter", "play"},
+                              {"s", "stop"},
+                              {"r", "rescan"},
+                              {"q", "quit"}}),
                    }) |
-                   border;
+                   borderRounded;
         });
 
         root |= CatchEvent([&](Event event) {
