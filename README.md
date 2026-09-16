@@ -21,3 +21,5 @@ cmake -B build
 cmake --build build -j
 ./build/unixboard
 ```
+## License
+This project is licensed under the GNU GPL v3.0. See the LICENSE file for details.
