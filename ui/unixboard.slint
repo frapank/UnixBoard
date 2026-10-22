@@ -1,0 +1,412 @@
+import { ScrollView } from "std-widgets.slint";
+
+export struct Clip {
+    name: string,
+}
+
+global Theme {
+    out property <color> bg: #08080b;
+    out property <color> surface: #141419;
+    out property <color> surface-hi: #1f1f26;
+    out property <color> text: #e9e9f0;
+    out property <color> muted: #71717f;
+    out property <color> accent: #7c9cff;
+    out property <color> accent2: #b58cff;
+    out property <color> ok: #3fd684;
+    out property <color> danger: #ff5c6a;
+}
+
+component Squircle inherits Rectangle {
+    in property <length> radius: 12px;
+    in property <brush> fill;
+    in property <brush> stroke;
+    in property <length> stroke-width: 0px;
+
+    property <float> w: Math.max(1, self.width / 1px);
+    property <float> h: Math.max(1, self.height / 1px);
+    property <float> d: Math.min(Math.min(root.radius / 1px * 1.45, root.w / 2), root.h / 2);
+    property <float> c: root.d * 0.25; 
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: root.w;
+        viewbox-height: root.h;
+        fill: root.fill;
+        stroke: root.stroke;
+        stroke-width: root.stroke-width;
+
+        MoveTo { x: root.d; y: 0; }
+        LineTo { x: root.w - root.d; y: 0; }
+        CubicTo {
+            control-1-x: root.w - root.c; control-1-y: 0;
+            control-2-x: root.w;          control-2-y: root.c;
+            x: root.w; y: root.d;
+        }
+        LineTo { x: root.w; y: root.h - root.d; }
+        CubicTo {
+            control-1-x: root.w;          control-1-y: root.h - root.c;
+            control-2-x: root.w - root.c; control-2-y: root.h;
+            x: root.w - root.d; y: root.h;
+        }
+        LineTo { x: root.d; y: root.h; }
+        CubicTo {
+            control-1-x: root.c; control-1-y: root.h;
+            control-2-x: 0;      control-2-y: root.h - root.c;
+            x: 0; y: root.h - root.d;
+        }
+        LineTo { x: 0; y: root.d; }
+        CubicTo {
+            control-1-x: 0;      control-1-y: root.c;
+            control-2-x: root.c; control-2-y: 0;
+            x: root.d; y: 0;
+        }
+        Close { }
+    }
+}
+
+component Action inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <color> tint: Theme.muted;
+    callback clicked;
+
+    horizontal-stretch: 0;
+    height: 38px;
+
+    property <color> body: ta.pressed ? root.tint.transparentize(0.55)
+        : (ta.has-hover ? root.tint.transparentize(0.8) : Theme.surface);
+    property <color> edge: ta.has-hover ? root.tint.transparentize(0.45) : Theme.surface-hi;
+    animate body, edge { duration: 160ms; easing: ease-out; }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 16px;
+        background: root.body;
+        drop-shadow-blur: ta.has-hover ? 14px : 0px;
+        drop-shadow-offset-y: ta.has-hover ? 3px : 0px;
+        drop-shadow-color: #00000077;
+        animate drop-shadow-blur, drop-shadow-offset-y { duration: 160ms; easing: ease-out; }
+    }
+    Squircle {
+        width: 100%;
+        height: 100%;
+        radius: 13px;
+        fill: root.body;
+        stroke: root.edge;
+        stroke-width: 1px;
+    }
+
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 19px;
+        spacing: 9px;
+        Text {
+            text: root.icon;
+            color: ta.has-hover ? root.tint : Theme.muted;
+            font-size: 11px;
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+            animate color { duration: 160ms; easing: ease-out; }
+        }
+        Text {
+            text: root.label;
+            color: ta.has-hover ? root.tint : Theme.text.transparentize(0.25);
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+            animate color { duration: 160ms; easing: ease-out; }
+        }
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component MicChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 30px;
+    border-radius: 15px;
+    background: root.selected ? Theme.surface-hi
+        : (ta.has-hover ? Theme.surface : transparent);
+    animate background { duration: 180ms; easing: ease-out; }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 14px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: root.selected ? Theme.ok : Theme.muted;
+                animate background { duration: 220ms; easing: ease-out; }
+            }
+        }
+        Text {
+            text: root.label;
+            color: root.selected ? Theme.text : Theme.muted;
+            font-size: 12px;
+            vertical-alignment: center;
+            overflow: elide;
+            animate color { duration: 180ms; easing: ease-out; }
+        }
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component Tile inherits Rectangle {
+    in property <string> label;
+    in property <bool> live;
+    in property <bool> pulse;
+    in property <duration> stagger;
+    callback clicked;
+
+    property <bool> hot: ta.has-hover && !ta.pressed;
+    property <color> body: ta.pressed ? Theme.accent.transparentize(0.7)
+        : (root.hot ? Theme.surface-hi : Theme.surface);
+    property <color> edge: root.live
+        ? (root.pulse ? Theme.ok : Theme.ok.transparentize(0.6))
+        : (root.hot ? Theme.accent.transparentize(0.45) : Theme.surface-hi);
+    animate body { duration: 170ms; easing: ease-out; }
+    animate edge { duration: 400ms; easing: ease-in-out; }
+
+    card := Rectangle {
+        width: 100%;
+        height: 100%;
+        y: root.hot ? -3px : 0px;
+
+        opacity: 0;
+        init => { self.opacity = 1; }
+
+        animate y { duration: 170ms; easing: ease-out-quad; }
+        animate opacity { duration: 280ms; delay: root.stagger; easing: ease-out; }
+
+        Rectangle {
+            width: 100%;
+            height: 100%;
+            border-radius: 17px;
+            background: root.body;
+            drop-shadow-blur: root.hot ? 14px : 0px;
+            drop-shadow-offset-y: root.hot ? 4px : 0px;
+            drop-shadow-color: #00000088;
+            animate drop-shadow-blur, drop-shadow-offset-y {
+                duration: 170ms;
+                easing: ease-out;
+            }
+        }
+        Squircle {
+            width: 100%;
+            height: 100%;
+            radius: 15px;
+            fill: root.body;
+            stroke: root.edge;
+            stroke-width: 1px;
+        }
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 14px;
+            spacing: 10px;
+            Text {
+                text: "♪";
+                font-size: 14px;
+                horizontal-stretch: 0;
+                vertical-alignment: center;
+                color: root.live ? Theme.ok : (root.hot ? Theme.accent2 : Theme.muted);
+                animate color { duration: 170ms; easing: ease-out; }
+            }
+            Text {
+                text: root.label;
+                color: root.hot || root.live ? Theme.text : Theme.text.transparentize(0.28);
+                font-size: 13px;
+                font-weight: 600;
+                horizontal-stretch: 1;
+                horizontal-alignment: left;
+                vertical-alignment: center;
+                overflow: elide;
+                animate color { duration: 170ms; easing: ease-out; }
+            }
+        }
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component MainWindow inherits Window {
+    in property <[Clip]> clips;
+    in property <[string]> mics;
+    in property <int> active-mic: -1;
+    in property <string> status: "";
+    in property <int> playing: 0;
+    in property <int> playing-index: -1;
+
+    callback play(int);
+    callback stop-all();
+    callback rescan();
+    callback pick-mic(int);
+
+    title: "UnixBoard";
+    background: Theme.bg;
+    preferred-width: 880px;
+    preferred-height: 520px;
+    min-width: 560px;
+    min-height: 360px;
+
+    property <length> gap: 10px;
+    property <length> inset: 8px;
+    property <length> grid-w: sv.visible-width - 2 * root.inset;
+    property <int> cols: Math.max(1, Math.floor((root.grid-w + root.gap) / (170px + root.gap)));
+    property <length> tile-w: (root.grid-w - (root.cols - 1) * root.gap) / root.cols;
+    property <length> tile-h: 64px;
+    property <bool> pulse: false;
+
+    Timer {
+        interval: 850ms;
+        running: root.playing > 0;
+        triggered => { root.pulse = !root.pulse; }
+    }
+
+    init => { fs.focus(); }
+
+    fs := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "s") { root.stop-all(); return accept; }
+            if (event.text == "r") { root.rescan(); return accept; }
+            if (event.text != "0" && event.text.is-float()) {
+                root.play(Math.round(event.text.to-float()) - 1);
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding: 10px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                padding-left: 8px;
+                padding-right: 8px;
+                HorizontalLayout {
+                    horizontal-stretch: 0;
+                    Text {
+                        text: "UNIX";
+                        color: Theme.accent2;
+                        font-size: 15px;
+                        font-weight: 800;
+                        letter-spacing: 1px;
+                    }
+                    Text {
+                        text: "BOARD";
+                        color: Theme.accent;
+                        font-size: 15px;
+                        font-weight: 800;
+                        letter-spacing: 1px;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                HorizontalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 7px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 7px;
+                            height: 7px;
+                            border-radius: 4px;
+                            background: root.playing > 0 ? Theme.ok : Theme.muted.transparentize(0.5);
+                            opacity: root.playing > 0 && root.pulse ? 0.3 : 1.0;
+                            animate background { duration: 300ms; }
+                            animate opacity { duration: 820ms; easing: ease-in-out; }
+                        }
+                    }
+                    Text {
+                        text: root.playing > 0 ? "live · " + root.playing : "standby";
+                        color: root.playing > 0 ? Theme.ok : Theme.muted;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        animate color { duration: 300ms; easing: ease-out; }
+                    }
+                }
+            }
+
+            ScrollView {
+                height: 30px;
+                vertical-scrollbar-policy: always-off;
+                horizontal-scrollbar-policy: always-off;
+                HorizontalLayout {
+                    spacing: 6px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    alignment: start;
+                    for mic[i] in root.mics: MicChip {
+                        label: mic;
+                        selected: i == root.active-mic;
+                        clicked => { root.pick-mic(i); }
+                    }
+                }
+            }
+
+            sv := ScrollView {
+                content-width: self.visible-width;
+                content-height: Math.max(40px,
+                    Math.ceil(root.clips.length / root.cols) * (root.tile-h + root.gap)
+                        - root.gap + 2 * root.inset);
+                for clip[i] in root.clips: Tile {
+                    x: root.inset + Math.mod(i, root.cols) * (root.tile-w + root.gap);
+                    y: root.inset + Math.floor(i / root.cols) * (root.tile-h + root.gap);
+                    width: root.tile-w;
+                    height: root.tile-h;
+                    label: clip.name;
+                    live: root.playing > 0 && i == root.playing-index;
+                    pulse: root.pulse;
+                    stagger: (i * 30ms);
+                    clicked => { root.play(i); }
+                }
+                if root.clips.length == 0: Text {
+                    text: "no .mp3 in ./sounds";
+                    color: Theme.muted;
+                    font-size: 13px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                padding-left: 8px;
+                padding-right: 8px;
+                Text {
+                    text: root.status;
+                    color: root.playing > 0 ? Theme.ok : Theme.muted;
+                    font-size: 12px;
+                    horizontal-alignment: left;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    animate color { duration: 300ms; easing: ease-out; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Action {
+                    icon: "■";
+                    label: "stop";
+                    tint: Theme.danger;
+                    clicked => { root.stop-all(); }
+                }
+                Action {
+                    icon: "⟳";
+                    label: "rescan";
+                    tint: Theme.accent2;
+                    clicked => { root.rescan(); }
+                }
+            }
+        }
+    }
+}
